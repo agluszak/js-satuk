@@ -1,32 +1,12 @@
 const inputFile = "all.json";
 const outputFile = "all_unfacebook.json";
 
-class Date {
-    year;
-    month;
-    day;
-    hour;
-    minute;
-
-    constructor(year, month, day, hour, minute) {
-        this.year = year;
-        this.month = month;
-        this.day = day;
-        this.hour = hour;
-        this.minute = minute;
-    }
-
-    static invalid() {
-        return new Date(null, null, null, null, null);
-    }
-}
-
 const DATE_REGEX = /(\d+) (\S+) o (\d+):(\d+)/;
 const DATE_REGEX_YEAR = /(\d+) (\S+) (\d+) o (\d+):(\d+)/;
 
 function unfacebookDate(s) {
     if (!s) {
-        return Date.invalid();
+        return null;
     }
 
     let year;
@@ -42,7 +22,7 @@ function unfacebookDate(s) {
         year = "2022";
     } else {
         console.log("Unknown date:", s);
-        return Date.invalid();
+        return null;
     }
     day = parseInt(day);
     month = parseMonth(month);
@@ -54,7 +34,7 @@ function unfacebookDate(s) {
 }
 
 function parseMonth(s) {
-    switch(s) {
+    switch (s) {
         case "stycznia":
             return 1;
         case "lutego":
@@ -139,17 +119,72 @@ function unfacebookReactions(s) {
 
 const fs = require('fs');
 
-try {
-  const data = fs.readFileSync(inputFile, 'utf8');
-  const json = JSON.parse(data);
+function readOcr(photoId) {
+    const name1 = "pics/" + photoId + ".jpg.pl.txt";
+    const name2 = "pics/" + photoId + ".png.pl.txt";
 
-  const unfacebooked_json = json.map(x => {
+    if (fs.existsSync(name1)) {
+        return fs.readFileSync(name1, 'utf8');
+    } else if (fs.existsSync(name2)) {
+        return fs.readFileSync(name2, 'utf8');
+    } else {
+        console.log("No OCR for", photoId);
+        return null;
+    }
+}
+
+try {
+    const data = fs.readFileSync(inputFile, 'utf8');
+    const json = JSON.parse(data);
+
+    let counter = 0;
+    const unfacebookedJson = json.map(x => {
+        counter++;
+        console.log(counter);
         let date = unfacebookDate(x.date);
         let reactions = unfacebookReactions(x.likes);
+        let ocr;
+        if (x.photoFbId) {
+            ocr = readOcr(x.photoFbId);
+        } else {
+            ocr = null;
+        }
+        x.likes = null;
+
+        if (x.photoDescription) {
+            x.photoDescription = x.photoDescription.replace("Może być zdjęciem przedstawiającym ", "");
+            x.photoDescription = x.photoDescription.replace("Może być zdjęciem w zbliżeniu przedstawiającym ", "");
+            x.photoDescription = x.photoDescription.replace("Może być memem przedstawiającym ", "");
+            x.photoDescription = x.photoDescription.replace("Może być komiksem przedstawiającym ", "");
+            x.photoDescription = x.photoDescription.replace("Może być zdjęciem", "");
+            x.photoDescription = x.photoDescription.replace("Może być komiksem", "");
+            x.photoDescription = x.photoDescription.replace("Może być memem", "");
+            x.photoDescription = x.photoDescription.replace("Może być grafiką anime przedstawiającą ", "");
+            x.photoDescription = x.photoDescription.replace("Może być grafiką anime", "");
+            x.photoDescription = x.photoDescription.replace("Może być ilustracją przedstawiającą ", "");
+            x.photoDescription = x.photoDescription.replace("Może być obrazem przedstawiającym ", "");
+            x.photoDescription = x.photoDescription.replace("Może być selfie przedstawiającym ", "");
+            x.photoDescription = x.photoDescription.replace("Może być czarno-białym zdjęciem przedstawiającym ", "");
+            x.photoDescription = x.photoDescription.replace("Może być zrzutem ekranu z Twittera przedstawiającym ", "");
+            if (x.photoDescription === "Brak dostępnego opisu zdjęcia.") {
+                x.photoDescription = null;
+            }
+        }
+
         // put each object's fields into x
-        return {...x, ...date, ...reactions};
+        return {...x, date: date, ocr: ocr, ...reactions};
     });
-    fs.writeFileSync(outputFile, JSON.stringify(unfacebooked_json));
+    // remove all null fields
+    const filteredJson = unfacebookedJson.map(x => {
+        let result = {};
+        for (let [k, v] of Object.entries(x)) {
+            if (v !== null) {
+                result[k] = v;
+            }
+        }
+        return result;
+    });
+    fs.writeFileSync(outputFile, JSON.stringify(filteredJson));
 } catch (err) {
-  console.error(err);
+    console.error(err);
 }
